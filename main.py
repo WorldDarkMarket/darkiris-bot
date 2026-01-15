@@ -1,4 +1,5 @@
 import os
+import re
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -28,16 +29,14 @@ client = OpenAI(
 # Configuração DarkIris
 # ========================
 GROUP_KEYWORDS = [
-    "preço",
-    "valor",
-    "stock",
-    "estoque",
-    "como funciona",
-    "informação",
-    "info",
-    "ajuda",
-    "suporte",
-    "darkiris"
+    "preço", "valor", "stock", "estoque",
+    "como funciona", "informação", "info",
+    "ajuda", "suporte"
+]
+
+NAME_TRIGGERS = [
+    r"\bdarkiris\b",
+    r"\biris\b"
 ]
 
 SYSTEM_PROMPT = """
@@ -56,11 +55,14 @@ Regras:
 # ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🖤 Eu sou a DarkIris.\nFala comigo normalmente."
+        "🖤 Eu sou a DarkIris.\nPodes falar comigo normalmente."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
+    if not message or not message.text:
+        return
+
     text = message.text.lower()
     chat_type = message.chat.type
 
@@ -71,16 +73,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ===== GRUPO =====
     if chat_type in ["group", "supergroup"]:
-        # Só responde se for chamada ou palavra-chave
-        if (
-            f"@{context.bot.username.lower()}" in text
-            or any(keyword in text for keyword in GROUP_KEYWORDS)
-        ):
-            await respond_ai(
-                message,
-                text,
-                group_mode=True
-            )
+
+        # 1. Reply direto a mensagem da bot
+        if message.reply_to_message and message.reply_to_message.from_user.is_bot:
+            await respond_ai(message, text, group_mode=True)
+            return
+
+        # 2. Nome da bot no texto (DarkIris / Iris)
+        for trigger in NAME_TRIGGERS:
+            if re.search(trigger, text):
+                await respond_ai(message, text, group_mode=True)
+                return
+
+        # 3. Palavra-chave comercial
+        if any(keyword in text for keyword in GROUP_KEYWORDS):
+            await respond_ai(message, text, group_mode=True)
+            return
 
 async def respond_ai(message, user_text, group_mode=False):
     response = client.chat.completions.create(
@@ -96,7 +104,7 @@ async def respond_ai(message, user_text, group_mode=False):
     reply = response.choices[0].message.content
 
     if group_mode:
-        reply += "\n\n🖤 Se quiseres, podemos falar melhor no privado."
+        reply += "\n\n🖤 Podemos falar melhor no privado."
 
     await message.reply_text(reply)
 
@@ -109,7 +117,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🤖 DarkIris está online...")
+    print("🤖 DarkIris está online e atenta.")
     app.run_polling()
 
 if __name__ == "__main__":
