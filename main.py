@@ -142,27 +142,26 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=voltar_hall()
         )
 
-    # ===== BANCO =====
-elif data == "banco":
-    context.user_data["persona"] = "lucas"
+        # ===== BANCO =====
+    elif data == "banco":
+        context.user_data["persona"] = "lucas"
 
-    wallet = get_wallet(query.from_user.id)
-    settings = get_bank_settings()
+        wallet = get_wallet(query.from_user.id)
+        settings = get_bank_settings()
 
-    caption = (
-        "🏦 **Banco Central**\n\n"
-        f"👤 ID: `{query.from_user.id}`\n"
-        f"💰 Saldo: {wallet['balance']} USDT\n\n"
-        "Escolhe uma operação:"
-    )
+        caption = (
+            "🏦 **Banco Central**\n\n"
+            f"👤 ID: `{query.from_user.id}`\n"
+            f"💰 Saldo: {wallet['balance']} USDT\n\n"
+            "Escolhe uma operação:"
+        )
 
-    await query.message.reply_photo(
-        photo=BANK_IMG,
-        caption=caption,
-        reply_markup=bank_menu(),
-        parse_mode="Markdown"
-    )
-
+        await query.message.reply_photo(
+            photo=BANK_IMG,
+            caption=caption,
+            reply_markup=bank_menu(),
+            parse_mode="Markdown"
+        )
 
 # ================= AI CHAT =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
