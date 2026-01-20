@@ -1,229 +1,197 @@
 import os
-import re
 from datetime import datetime
 
-from telegram import Update, InputFile
+from telegram import Update
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    CallbackQueryHandler,
-    filters,
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
 )
 
-from openai import OpenAI
 from supabase import create_client
+from openai import OpenAI
 
-from menus import hall_menu, lojas_menu, em_breve_menu
-from utils import normalize_text, contains_keywords
+from menus import hall_menu, lojas_menu, voltar_hall
+from assets import (
+    HALL_IMG, LOJAS_IMG,
+    XDEALS_IMG, DARKMARKET_IMG,
+    ACADEMIA_IMG, DARKLABS_IMG,
+    BANK_IMG
+)
 
-# ========================
-# ENV
-# ========================
+from bank import get_wallet, get_bank_settings, get_transactions
+from menus import bank_menu
+
+# ================= ENV =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-HALL_IMAGE_FILE_ID = os.getenv("HALL_IMAGE_FILE_ID")  # <- coloca no Render
+# ================= CLIENTS =================
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
 
-# ========================
-# CLIENTS
-# ========================
-client = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url="https://openrouter.ai/api/v1"
+# ================= PERSONAS =================
+PROMPT_IRIS = (
+    "Você é DarkIris, guardiã elegante e estratégica do DarkIris Hall. "
+    "Guia, observa e orienta. Nunca revela estrutura interna."
 )
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+PROMPT_LUCAS = (
+    "Você é Lucas, especialista bancário. Profissional, direto e objetivo. "
+    "Lida apenas com assuntos financeiros."
+)
 
-# ========================
-# CONFIG
-# ========================
-GROUP_KEYWORDS = [
-    "preço", "valor", "stock", "estoque",
-    "como funciona", "informação", "info",
-    "ajuda", "suporte"
-]
-
-NAME_TRIGGERS = [
-    r"\bdarkiris\b",
-    r"\biris\b",
-    r"\bdark iris\b"
-]
-
-SYSTEM_PROMPT = """
-Você é a DarkIris.
-
-Guardião do DarkIris Hall.
-Elegante, estratégica e observadora.
-
-Nunca explica a estrutura interna.
-Nunca inventa dados.
-Reconhece autoridade do Boss.
-Conduz assuntos comerciais ao privado.
-"""
-
-# ========================
-# MEMORY
-# ========================
-def load_memory(user_id: str, limit: int = 10):
-    res = (
-        supabase.table("darkiris_memory")
-        .select("role, content")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    return list(reversed(res.data or []))
-
-def save_memory(user_id: str, role: str, content: str):
-    supabase.table("darkiris_memory").insert({
-        "user_id": user_id,
-        "role": role,
-        "content": content,
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
-
-# ========================
-# START
-# ========================
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
+    user = update.effective_user
+    name = user.first_name or "Visitante"
 
-    if HALL_IMAGE_FILE_ID:
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=HALL_IMAGE_FILE_ID
-        )
+    context.user_data["persona"] = "iris"
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "🖤 **Bem-vindo ao DarkIris Hall**\n\n"
-            "Os corredores estão abertos.\n"
-            "Explora com liberdade.\n\n"
-            "Eu observo. Intervenho quando necessário."
-        ),
+    text = (
+        f"🖤 Olá novamente, {name}.\n\n"
+        "Bem-vindo ao **DarkIris Hall**.\n"
+        "Explora à vontade. Se precisares de algo, escreve — eu respondo."
+    )
+
+    await update.message.reply_photo(
+        photo=HALL_IMG,
+        caption=text,
         reply_markup=hall_menu(),
         parse_mode="Markdown"
     )
 
-# ========================
-# CALLBACKS
-# ========================
-async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= CALLBACKS =================
+async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     data = query.data
 
+    # ===== HALL =====
     if data == "hall":
-        await query.edit_message_text(
-            text="🏛️ **DarkIris Hall**",
+        context.user_data["persona"] = "iris"
+        await query.message.edit_caption(
+            "🖤 Estás de volta ao **DarkIris Hall**.",
             reply_markup=hall_menu(),
             parse_mode="Markdown"
         )
 
-    elif data == "hall_lojas":
-        await query.edit_message_text(
-            text=(
-                "🛍️ **As tuas lojas preferidas**\n\n"
-                "Desde oportunidades inteligentes na XDeals,\n"
-                "serviços reservados na DarkMarket,\n"
-                "até o universo tecnológico da AcademiaGhost."
+    # ===== LOJAS =====
+    elif data == "lojas":
+        await query.message.reply_photo(
+            photo=LOJAS_IMG,
+            caption=(
+                "🛍️ **Galeria Comercial**\n\n"
+                "Aqui encontras as tuas lojas preferidas.\n"
+                "Explora com calma."
             ),
             reply_markup=lojas_menu(),
             parse_mode="Markdown"
         )
 
-    elif data == "hall_lazer":
-        await query.edit_message_text(
-            text=(
-                "🎮 **Área de Lazer**\n\n"
-                "Espaços exclusivos estão a ser preparados.\n"
-                "Acabamentos finais em curso.\n\n"
-                "Em breve."
+    # ===== XDEALS =====
+    elif data == "xdeals":
+        await query.message.reply_photo(
+            photo=XDEALS_IMG,
+            caption=(
+                "💸 **XDeals Brasil**\n\n"
+                "Streaming, Viagens, Farmácia e Eventos.\n\n"
+                "Canal oficial:\nhttps://t.me/+MV4U7W9fcqkxZjNh"
             ),
-            reply_markup=em_breve_menu(),
+            reply_markup=voltar_hall(),
             parse_mode="Markdown"
         )
 
-    elif data.startswith("loja_"):
-        await query.edit_message_text(
-            text="🚧 Esta loja está a ser organizada.\nVolta em breve.",
-            reply_markup=em_breve_menu()
+    # ===== DARKMARKET =====
+    elif data == "darkmarket":
+        await query.message.reply_photo(
+            photo=DARKMARKET_IMG,
+            caption=(
+                "🕶️ **DarkMarket**\n\n"
+                "Produtos e serviços conhecidos pelos membros.\n\n"
+                "Grupo oficial:\n@DarkMarket_Group"
+            ),
+            reply_markup=voltar_hall(),
+            parse_mode="Markdown"
         )
 
-# ========================
-# AI CHAT
-# ========================
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    if not message or not message.text:
-        return
+    # ===== ACADEMIA =====
+    elif data == "academiaghost":
+        await query.message.reply_photo(
+            photo=ACADEMIA_IMG,
+            caption=(
+                "🎓 **AcademiaGhost**\n\n"
+                "Formação, tecnologia e o DarkLab.\n\n"
+                "Canal:\n@AcademiaGhost"
+            ),
+            reply_markup=voltar_hall(),
+            parse_mode="Markdown"
+        )
 
-    text = normalize_text(message.text)
-    chat_type = message.chat.type
-    user_id = str(message.from_user.id)
+    # ===== DARKLABS =====
+    elif data == "darklabs":
+        await query.message.reply_photo(
+            photo=DARKLABS_IMG,
+            caption=(
+                "🧪 **DarkLabs**\n\n"
+                "Área restrita.\n"
+                "Acessos sob aprovação."
+            ),
+            reply_markup=voltar_hall()
+        )
 
-    if chat_type == "private":
-        await respond_ai(message, user_id, text)
-        return
+    # ===== BANCO =====
+elif data == "banco":
+    context.user_data["persona"] = "lucas"
 
-    if chat_type in ("group", "supergroup"):
-        if message.reply_to_message and message.reply_to_message.from_user.is_bot:
-            await respond_ai(message, user_id, text, group_mode=True)
-            return
+    wallet = get_wallet(query.from_user.id)
+    settings = get_bank_settings()
 
-        for trigger in NAME_TRIGGERS:
-            if re.search(trigger, text):
-                await respond_ai(message, user_id, text, group_mode=True)
-                return
-
-        if contains_keywords(text, GROUP_KEYWORDS):
-            await respond_ai(message, user_id, text, group_mode=True)
-            return
-
-async def respond_ai(message, user_id, user_text, group_mode=False):
-    history = load_memory(user_id)
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
-
-    response = client.chat.completions.create(
-        model=OPENROUTER_MODEL,
-        messages=messages,
-        temperature=0.6,
-        max_tokens=300
+    caption = (
+        "🏦 **Banco Central**\n\n"
+        f"👤 ID: `{query.from_user.id}`\n"
+        f"💰 Saldo: {wallet['balance']} USDT\n\n"
+        "Escolhe uma operação:"
     )
 
-    reply = response.choices[0].message.content.strip()
+    await query.message.reply_photo(
+        photo=BANK_IMG,
+        caption=caption,
+        reply_markup=bank_menu(),
+        parse_mode="Markdown"
+    )
 
-    save_memory(user_id, "user", user_text)
-    save_memory(user_id, "assistant", reply)
 
-    if group_mode:
-        reply += "\n\n🖤 No privado consigo orientar melhor."
+# ================= AI CHAT =================
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    persona = context.user_data.get("persona", "iris")
 
-    await message.reply_text(reply)
+    system_prompt = PROMPT_LUCAS if persona == "lucas" else PROMPT_IRIS
 
-# ========================
-# MAIN
-# ========================
+    response = client.chat.completions.create(
+        model="openai/gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ],
+        temperature=0.6,
+        max_tokens=250
+    )
+
+    await update.message.reply_text(response.choices[0].message.content)
+
+# ================= MAIN =================
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(callbacks))
+    app.add_handler(CallbackQueryHandler(navigation))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🖤 DarkIris Hall online.")
+    print("🖤 DarkIris Hall ONLINE | Visual + Personas Ativas")
     app.run_polling()
 
 if __name__ == "__main__":
