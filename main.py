@@ -10,7 +10,8 @@ from telegram.ext import (
 from supabase import create_client
 from openai import OpenAI
 
-from menus import hall_menu, lojas_menu, voltar_hall
+# ===== MENUS & ASSETS =====
+from menus import hall_menu, lojas_menu, voltar_hall, bank_menu
 from assets import (
     HALL_IMG, LOJAS_IMG,
     XDEALS_IMG, DARKMARKET_IMG,
@@ -18,8 +19,9 @@ from assets import (
     BANK_IMG
 )
 
+# ===== SERVICES =====
+from services.users import get_or_create_user
 from bank import get_wallet, get_bank_settings, get_transactions
-from menus import bank_menu
 
 # ================= ENV =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,7 +31,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # ================= CLIENTS =================
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
+
+client = OpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1"
+)
 
 # ================= PERSONAS =================
 PROMPT_IRIS = (
@@ -44,10 +50,12 @@ PROMPT_LUCAS = (
 
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    name = user.first_name or "Visitante"
+    tg_user = update.effective_user
+    user_core = get_or_create_user(tg_user)
 
     context.user_data["persona"] = "iris"
+
+    name = user_core.get("first_name") or "Visitante"
 
     text = (
         f"🖤 Olá novamente, {name}.\n\n"
@@ -66,6 +74,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    # garante user registado
+    get_or_create_user(query.from_user)
 
     data = query.data
 
@@ -142,7 +153,7 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=voltar_hall()
         )
 
-        # ===== BANCO =====
+    # ===== BANCO =====
     elif data == "banco":
         context.user_data["persona"] = "lucas"
 
@@ -152,7 +163,7 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = (
             "🏦 **Banco Central**\n\n"
             f"👤 ID: `{query.from_user.id}`\n"
-            f"💰 Saldo: {wallet['balance']} USDT\n\n"
+            f"💰 Saldo: {wallet['balance']} {settings['currency']}\n\n"
             "Escolhe uma operação:"
         )
 
@@ -165,6 +176,9 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= AI CHAT =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    get_or_create_user(tg_user)
+
     text = update.message.text
     persona = context.user_data.get("persona", "iris")
 
@@ -180,7 +194,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         max_tokens=250
     )
 
-    await update.message.reply_text(response.choices[0].message.content)
+    await update.message.reply_text(
+        response.choices[0].message.content
+    )
 
 # ================= MAIN =================
 def main():
@@ -190,8 +206,9 @@ def main():
     app.add_handler(CallbackQueryHandler(navigation))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🖤 DarkIris Hall ONLINE | Visual + Personas Ativas")
+    print("🖤 DarkIris Hall ONLINE | Supabase + Banco + Personas OK")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
