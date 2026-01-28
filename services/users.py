@@ -4,7 +4,7 @@ import os
 
 supabase = create_client(
     os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
+    os.getenv("SUPABASE_SERVICE_KEY")
 )
 
 def get_or_create_user(tg_user):
@@ -33,3 +33,4 @@ def get_or_create_user(tg_user):
 
     created = supabase.table("users_core").insert(user).execute()
     return created.data[0]
+
