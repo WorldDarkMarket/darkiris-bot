@@ -10,19 +10,23 @@ supabase = create_client(
 def get_or_create_user(tg_user):
     telegram_id = tg_user.id
 
-    res = supabase.table("users_core") \
-        .select("*") \
-        .eq("telegram_id", telegram_id) \
-        .single() \
+    res = (
+        supabase.table("users_core")
+        .select("*")
+        .eq("telegram_id", telegram_id)
+        .limit(1)
         .execute()
+    )
 
-    if res.data:
+    # === USER EXISTS ===
+    if res.data and len(res.data) > 0:
         supabase.table("users_core") \
             .update({"last_seen": datetime.utcnow().isoformat()}) \
             .eq("telegram_id", telegram_id) \
             .execute()
-        return res.data
+        return res.data[0]
 
+    # === CREATE USER ===
     user = {
         "telegram_id": telegram_id,
         "username": tg_user.username,
@@ -33,4 +37,5 @@ def get_or_create_user(tg_user):
 
     created = supabase.table("users_core").insert(user).execute()
     return created.data[0]
+
 
