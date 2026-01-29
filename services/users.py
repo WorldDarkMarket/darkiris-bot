@@ -1,11 +1,5 @@
 from datetime import datetime
-from supabase import create_client
-import os
-
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
-)
+from services.supabase_client import supabase
 
 def get_or_create_user(tg_user):
     telegram_id = tg_user.id
@@ -18,7 +12,6 @@ def get_or_create_user(tg_user):
         .execute()
     )
 
-    # === USER EXISTS ===
     if res.data and len(res.data) > 0:
         supabase.table("users_core") \
             .update({"last_seen": datetime.utcnow().isoformat()}) \
@@ -26,7 +19,6 @@ def get_or_create_user(tg_user):
             .execute()
         return res.data[0]
 
-    # === CREATE USER ===
     user = {
         "telegram_id": telegram_id,
         "username": tg_user.username,
@@ -37,5 +29,6 @@ def get_or_create_user(tg_user):
 
     created = supabase.table("users_core").insert(user).execute()
     return created.data[0]
+
 
 

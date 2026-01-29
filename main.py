@@ -1,10 +1,18 @@
 import os
 from datetime import datetime
 
-from telegram import Update
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
 )
 
 from supabase import create_client
@@ -21,7 +29,14 @@ from assets import (
 
 # ===== SERVICES =====
 from services.users import get_or_create_user
-from bank import get_wallet, get_bank_settings, get_transactions
+from services.tickets import create_ticket
+from bank import get_wallet, get_bank_settings
+
+# ===== DATA =====
+from data.xdeals_products import XDEALS_PRODUCTS
+
+# ===== PAYMENTS =====
+from payments.misticpay import create_payment
 
 # ================= ENV =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -75,9 +90,7 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # garante user registado
     get_or_create_user(query.from_user)
-
     data = query.data
 
     # ===== HALL =====
@@ -95,81 +108,88 @@ async def navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             photo=LOJAS_IMG,
             caption=(
                 "🛍️ **Galeria Comercial**\n\n"
-                "Aqui encontras as tuas lojas preferidas.\n"
-                "Explora com calma."
+                "Aqui encontras as tuas lojas preferidas."
             ),
             reply_markup=lojas_menu(),
             parse_mode="Markdown"
         )
 
-    # ===== XDEALS =====
+    # ===== XDEALS LISTA =====
     elif data == "xdeals":
-        await query.message.reply_photo(
-            photo=XDEALS_IMG,
-            caption=(
-                "💸 **XDeals Brasil**\n\n"
-                "Streaming, Viagens, Farmácia e Eventos.\n\n"
-                "Canal oficial:\nhttps://t.me/+MV4U7W9fcqkxZjNh"
-            ),
-            reply_markup=voltar_hall(),
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"{p['name']} — R${p['price']}",
+                    callback_data=f"xdeal_buy:{p['code']}"
+                )
+            ]
+            for p in XDEALS_PRODUCTS
+        ]
+        keyboard.append([InlineKeyboardButton("⬅️ Voltar", callback_data="lojas")])
+
+        await query.message.reply_text(
+            "💸 **XDeals Brasil**\n\nSeleciona um serviço:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
-    # ===== DARKMARKET =====
-    elif data == "darkmarket":
-        await query.message.reply_photo(
-            photo=DARKMARKET_IMG,
-            caption=(
-                "🕶️ **DarkMarket**\n\n"
-                "Produtos e serviços conhecidos pelos membros.\n\n"
-                "Grupo oficial:\n@DarkMarket_Group"
-            ),
-            reply_markup=voltar_hall(),
+    # ===== CRIAR TICKET =====
+    elif data.startswith("xdeal_buy:"):
+        code = data.split(":")[1]
+        product = next(p for p in XDEALS_PRODUCTS if p["code"] == code)
+
+        ticket = create_ticket(
+            user_id=query.from_user.id,
+            store_slug="xdeals",
+            service_code=product["code"],
+            title=product["name"],
+            description=product.get("description"),
+            payment_required=True
+        )
+
+        await query.message.reply_text(
+            f"🧾 *Ticket criado*\n\n"
+            f"📦 {product['name']}\n"
+            f"💰 R${product['price']}\n\n"
+            "Desejas pagar agora?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "💳 Pagar",
+                    callback_data=f"pay_ticket:{ticket['id']}"
+                )],
+                [InlineKeyboardButton("❌ Cancelar", callback_data="hall")]
+            ]),
             parse_mode="Markdown"
         )
 
-    # ===== ACADEMIA =====
-    elif data == "academiaghost":
-        await query.message.reply_photo(
-            photo=ACADEMIA_IMG,
-            caption=(
-                "🎓 **AcademiaGhost**\n\n"
-                "Formação, tecnologia e o DarkLab.\n\n"
-                "Canal:\n@AcademiaGhost"
-            ),
-            reply_markup=voltar_hall(),
-            parse_mode="Markdown"
+    # ===== GERAR PAGAMENTO (NÃO CONFIRMA) =====
+    elif data.startswith("pay_ticket:"):
+        ticket_id = data.split(":")[1]
+
+        payment = create_payment(
+            reference=ticket_id
         )
 
-    # ===== DARKLABS =====
-    elif data == "darklabs":
-        await query.message.reply_photo(
-            photo=DARKLABS_IMG,
-            caption=(
-                "🧪 **DarkLabs**\n\n"
-                "Área restrita.\n"
-                "Acessos sob aprovação."
-            ),
-            reply_markup=voltar_hall()
+        await query.message.reply_text(
+            "💳 **Pagamento gerado**\n\n"
+            "⏳ Aguardando confirmação automática.\n\n"
+            f"🔗 {payment['payment_url']}",
+            parse_mode="Markdown"
         )
 
     # ===== BANCO =====
     elif data == "banco":
         context.user_data["persona"] = "lucas"
-
         wallet = get_wallet(query.from_user.id)
         settings = get_bank_settings()
 
-        caption = (
-            "🏦 **Banco Central**\n\n"
-            f"👤 ID: `{query.from_user.id}`\n"
-            f"💰 Saldo: {wallet['balance']} {settings['currency']}\n\n"
-            "Escolhe uma operação:"
-        )
-
         await query.message.reply_photo(
             photo=BANK_IMG,
-            caption=caption,
+            caption=(
+                "🏦 **Banco Central**\n\n"
+                f"👤 ID: `{query.from_user.id}`\n"
+                f"💰 Saldo: {wallet['balance']} {settings['currency']}"
+            ),
             reply_markup=bank_menu(),
             parse_mode="Markdown"
         )
@@ -179,24 +199,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = update.effective_user
     get_or_create_user(tg_user)
 
-    text = update.message.text
     persona = context.user_data.get("persona", "iris")
-
     system_prompt = PROMPT_LUCAS if persona == "lucas" else PROMPT_IRIS
 
     response = client.chat.completions.create(
         model="openai/gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text}
+            {"role": "user", "content": update.message.text}
         ],
         temperature=0.6,
         max_tokens=250
     )
 
-    await update.message.reply_text(
-        response.choices[0].message.content
-    )
+    await update.message.reply_text(response.choices[0].message.content)
 
 # ================= MAIN =================
 def main():
@@ -206,9 +222,11 @@ def main():
     app.add_handler(CallbackQueryHandler(navigation))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("🖤 DarkIris Hall ONLINE | Supabase + Banco + Personas OK")
+    print("🖤 DarkIris Hall ONLINE | XDeals + Tickets + MisticPay READY")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
+
 
