@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from webhooks.mistic import handle_misticpay_webhook
+from .webhooks.mistic import handle_misticpay_webhook
 
 app = FastAPI()
 
