@@ -1,8 +1,7 @@
+fastapi
+uvicorn
 python-telegram-bot==21.6
 requests
 python-dotenv
 openai
 supabase
-
-fastapi==0.110.0
-uvicorn==0.29.0
